@@ -1,69 +1,66 @@
 package com.example;
 
-import com.google.api.client.json.jackson.JacksonFactory;
+import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
-import com.google.api.services.bigquery.model.TableFieldSchema;
 import com.google.gson.Gson;
-import com.google.gson.JsonParser;
-import com.sun.xml.internal.messaging.saaj.util.ByteInputStream;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
-import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
-import org.apache.beam.sdk.options.Description;
-import org.apache.beam.sdk.options.PipelineOptions;
+
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
+import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
+import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
+import org.apache.beam.sdk.options.Default;
+import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation;
 import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.MapElements;
+import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SimpleFunction;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.coders.SerializableCoder;
-
-import org.apache.beam.sdk.io.TextIO;
-
 import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.ISODateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.ArrayList;
-
+import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PubSubToBigQuery {
 
     private static final Logger LOG = LoggerFactory.getLogger(PubSubToBigQuery.class);
 
-    public static interface MyOptions extends PipelineOptions {
+    public static interface MyOptions extends DataflowPipelineOptions {
         @Description("This is the input PubSub")
         @Validation.Required
+        @Default.String("projects/ocgcp-iot-core/subscriptions/telemetry-dataflow")
         String getInputPubSub();
         void setInputPubSub(String value);
 
-        @Description("This is output Big Query")
+        @Description("This is output data set to use with BigQuery")
         @Validation.Required
+        @Default.String("ocgcp-iot-core:shake_it.raw_telemetry")
         String getOutputBigQuery();
         void setOutputBigQuery(String value);
 
     }
 
     public static class IotPosition implements Serializable {
-        public double latitude;
-        public double longitude;
+        public Double latitude;
+        public Double longitude;
     }
 
     public static class IotAcceleration implements Serializable {
-        public double x;
-        public double y;
-        public double z;
+        public Double x;
+        public Double y;
+        public Double z;
     }
 
     public static class IotData implements Serializable {
-        public DateTime ts;
+        public Long ts;
         public String ua;
         public IotPosition position;
         public IotAcceleration acceleration;
@@ -71,77 +68,54 @@ public class PubSubToBigQuery {
 
     public static class MessageToIotDataFormatter extends DoFn<PubsubMessage, IotData> {
         @ProcessElement
-        public void processElement(ProcessContext c) {
-            byte[] inputBytes = c.element().getPayload();
-            String s = StringUtf8Coder.of().
-            String inputString = StringUtf8Coder.of().decode(new ByteInputStream(inputBytes))
-            StringUtf8Coder.of().decode(c.element());
-            IotData o = new Gson()..fromJson(c.element(), IotData.class);
-            IotData output = new IotData();
-            output.ts = new DateTime();
-            output.ua = "Mozilla/5.0 (iPhone; CPU OS 11_2_1 like Mac OS X) AppleWebKit/604.4.7 (KHTML, like Gecko) Version/11.0 Mobile/15C153 Safari/604.1";
-            output.position = new IotPosition();
-            output.position.latitude = 33.65222211122211;
-            output.position.longitude = -117.7422211122211;
-            output.acceleration = new IotAcceleration();
-            output.acceleration.x = 0.012711111111111111;
-            output.acceleration.y = 0.011511111111111111;
-            output.acceleration.z = 0.152711111111111111;
+        public void processElement(ProcessContext c) throws IOException {
+            String input = new String(c.element().getPayload());
+            IotData output = new Gson().fromJson(input, IotData.class);
             c.output(output);
         }
     }
 
-    public static class StringToIotFormatter extends SimpleFunction<String, IotData> {
-        @Override
-        public IotData apply(String input) {
-            LOG.debug("Inside StringToIotFormatter:apply");
-            IotData output = new IotData();
-            output.ts = new DateTime();
-            output.ua = "Mozilla";
-            output.position = new IotPosition();
-            output.position.latitude = 33.65222211122211;
-            output.position.longitude = -117.7422211122211;
-            output.acceleration = new IotAcceleration();
-            output.acceleration.x = 0.012711111111111111;
-            output.acceleration.y = 0.011511111111111111;
-            output.acceleration.z = 0.152711111111111111;
-            return output;
-        }
-    }
-
     public static class IotToTableFormatter extends SimpleFunction<IotData, TableRow> {
+        private final static DateTimeFormatter ISO_8601 = ISODateTimeFormat.dateTime();
+
         @Override
         public TableRow apply(IotData input) {
             LOG.debug("Inside IotToTableFormatter:apply");
             TableRow tr = new TableRow();
             if (input != null) {
-                tr.set("inputTime", input.ts.toString());
-                tr.set("userAgent", input.ua);
-                tr.set("latitude", input.position.latitude);
-                tr.set("longitude", input.position.longitude);
-                tr.set("accelerationX", input.acceleration.x);
-                tr.set("accelerationY", input.acceleration.y);
-                tr.set("accelerationZ", input.acceleration.z);
+                tr.set("inputTime", ISO_8601.print(new DateTime(input.ts)));
+                if (input.ua != null) {
+                    tr.set("userAgent", input.ua);
+                }
+                if (input.position != null) {
+                    tr.set("latitude", input.position.latitude);
+                    tr.set("longitude", input.position.longitude);
+                }
+                if (input.acceleration != null) {
+                    tr.set("accelerationX", input.acceleration.x);
+                    tr.set("accelerationY", input.acceleration.y);
+                    tr.set("accelerationZ", input.acceleration.z);
+                }
             }
             return tr;
         }
 
-        private static TableSchema schemaGen() {
-            LOG.debug("Inside schemaGen");
+        private static TableSchema RawSchema() {
+            LOG.debug("Inside RawSchema");
             List<TableFieldSchema> fields = new ArrayList<TableFieldSchema>();
-            fields.add(new TableFieldSchema().setName("inputTime").setType("STRING"));
+            fields.add(new TableFieldSchema().setName("inputTime").setType("TIMESTAMP"));
             fields.add(new TableFieldSchema().setName("userAgent").setType("STRING"));
             fields.add(new TableFieldSchema().setName("latitude").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("longitude").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationX").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationY").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationZ").setType("FLOAT"));
-            TableSchema schema = new TableSchema().setFields(fields);
-            return schema;
+            return new TableSchema().setFields(fields);
         }
     }
 
     public static void main(String[] args) {
+        LOG.debug("Inside main");
         MyOptions options = PipelineOptionsFactory
                 .fromArgs(args)
                 .withValidation()
@@ -153,21 +127,11 @@ public class PubSubToBigQuery {
                 .apply(ParDo.of(new MessageToIotDataFormatter()))
                 .apply(MapElements.via(new IotToTableFormatter()))
                 .apply(BigQueryIO.writeTableRows().to(options.getOutputBigQuery())
-                        .withSchema(IotToTableFormatter.schemaGen())
+                        .withSchema(IotToTableFormatter.RawSchema())
                         .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
                         .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND)
                 );
-        /*input.apply(TextIO.read().from("gs://words-an/testdata.txt"))
-                .apply(MapElements.via(new StringToIotFormatter()))
-                .apply(MapElements.via(new IotToTableFormatter()))
-                .apply(BigQueryIO.writeTableRows().to(options.getOutputBigQuery())
-                        .withSchema(IotToTableFormatter.schemaGen())
-                        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
-                        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND)
-                );*/
 
         input.run().waitUntilFinish();
     }
-
-
 }
