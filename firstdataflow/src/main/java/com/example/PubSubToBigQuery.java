@@ -83,9 +83,9 @@ public class PubSubToBigQuery {
             LOG.debug("Inside IotToTableFormatter:apply");
             TableRow tr = new TableRow();
             if (input != null) {
-                tr.set("inputTime", ISO_8601.print(new DateTime(input.ts)));
+                tr.set("ts", ISO_8601.print(new DateTime(input.ts)));
                 if (input.ua != null) {
-                    tr.set("userAgent", input.ua);
+                    tr.set("ua", input.ua);
                 }
                 if (input.position != null) {
                     tr.set("latitude", input.position.latitude);
@@ -103,8 +103,8 @@ public class PubSubToBigQuery {
         private static TableSchema RawSchema() {
             LOG.debug("Inside RawSchema");
             List<TableFieldSchema> fields = new ArrayList<TableFieldSchema>();
-            fields.add(new TableFieldSchema().setName("inputTime").setType("TIMESTAMP"));
-            fields.add(new TableFieldSchema().setName("userAgent").setType("STRING"));
+            fields.add(new TableFieldSchema().setName("ts").setType("TIMESTAMP"));
+            fields.add(new TableFieldSchema().setName("ua").setType("STRING"));
             fields.add(new TableFieldSchema().setName("latitude").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("longitude").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationX").setType("FLOAT"));
