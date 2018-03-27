@@ -42,7 +42,7 @@ public class PubSubToBigQuery {
 
         @Description("This is output data set to use with BigQuery")
         @Validation.Required
-        @Default.String("ocgcp-iot-core:shake_it.raw_telemetry")
+        @Default.String("ocgcp-iot-core:shake_data.raw_telemetry")
         String getOutputBigQuery();
         void setOutputBigQuery(String value);
 
@@ -64,6 +64,7 @@ public class PubSubToBigQuery {
         public String ua;
         public IotPosition position;
         public IotAcceleration acceleration;
+        public String deviceId;
     }
 
     public static class MessageToIotDataFormatter extends DoFn<PubsubMessage, IotData> {
@@ -96,6 +97,7 @@ public class PubSubToBigQuery {
                     tr.set("accelerationY", input.acceleration.y);
                     tr.set("accelerationZ", input.acceleration.z);
                 }
+                tr.set("deviceId", input.deviceId);
             }
             return tr;
         }
@@ -103,13 +105,14 @@ public class PubSubToBigQuery {
         private static TableSchema RawSchema() {
             LOG.debug("Inside RawSchema");
             List<TableFieldSchema> fields = new ArrayList<TableFieldSchema>();
-            fields.add(new TableFieldSchema().setName("ts").setType("TIMESTAMP"));
+            fields.add(new TableFieldSchema().setName("ts").setType("TIMESTAMP").setMode("REQUIRED"));
             fields.add(new TableFieldSchema().setName("ua").setType("STRING"));
             fields.add(new TableFieldSchema().setName("latitude").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("longitude").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationX").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationY").setType("FLOAT"));
             fields.add(new TableFieldSchema().setName("accelerationZ").setType("FLOAT"));
+            fields.add(new TableFieldSchema().setName("deviceId").setType("STRING").setMode("REQUIRED"));
             return new TableSchema().setFields(fields);
         }
     }
